@@ -1,5 +1,5 @@
 //
-//  MockDashSettingsViewModel.swift
+//  MockPodSettingsViewModel.swift
 //  DashKitUI
 //
 //  Created by Pete Schwamb on 3/8/20.
@@ -11,13 +11,15 @@ import LoopKit
 import HealthKit
 import DashKit
 
-class MockDashSettingsViewModel: DashSettingsViewModelProtocol {
+class MockPodSettingsViewModel: PodSettingsViewModelProtocol {
             
     var activatedAt: Date?
 
     var basalDeliveryState: PumpManagerStatus.BasalDeliveryState
 
     var basalDeliveryRate: BasalDeliveryRate?
+    
+    var reservoirLevel: ReservoirLevel?
 
     var timeZone: TimeZone {
         return TimeZone.currentFixed
@@ -54,6 +56,7 @@ class MockDashSettingsViewModel: DashSettingsViewModelProtocol {
         activatedAt = Date().addingTimeInterval(-TimeInterval(days: 1))
         basalDeliveryState = .active(Date())
         basalDeliveryRate = BasalDeliveryRate(absoluteRate: 1.1, netPercent: 1.1)
+        reservoirLevel = .aboveThreshold
         sdkVersion = "1.2.3"
         pdmIdentifier = "1.2.3"
     }

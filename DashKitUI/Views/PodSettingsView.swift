@@ -1,5 +1,5 @@
 //
-//  DashSettingsView.swift
+//  PodSettingsView.swift
 //  ViewDev
 //
 //  Created by Pete Schwamb on 3/8/20.
@@ -10,7 +10,7 @@ import SwiftUI
 import LoopKitUI
 import DashKit
 
-struct DashSettingsView<Model>: View where Model: DashSettingsViewModelProtocol  {
+struct PodSettingsView<Model>: View where Model: PodSettingsViewModelProtocol  {
     
     @ObservedObject var viewModel: Model
     
@@ -111,13 +111,15 @@ struct DashSettingsView<Model>: View where Model: DashSettingsViewModelProtocol 
     
     var reservoirStatus: some View {
         VStack(alignment: .leading) {
-            Text("Insulin Remaining")
+            Text(LocalizedString("Insulin Remaining", comment: "Header text for insulin remaining view in pod settings page"))
                 .foregroundColor(Color(UIColor.secondaryLabel))
-            HStack {
-                Image(systemName: "x.circle.fill")
-                    .foregroundColor(Color(UIColor.secondaryLabel))
-                
-                Text("No Pod").fontWeight(.bold)
+            self.viewModel.reservoirLevel.map { (rate) in
+                HStack {
+                    Image(systemName: "x.circle.fill")
+                        .foregroundColor(Color(UIColor.secondaryLabel))
+                    
+                    Text("No Pod").fontWeight(.bold)
+                }
             }
         }
     }
@@ -276,14 +278,14 @@ struct DashSettingsView<Model>: View where Model: DashSettingsViewModelProtocol 
     }
 }
 
-struct DashSettingsView_Previews: PreviewProvider {
+struct PodSettingsView_Previews: PreviewProvider {
     static var previews: some View {
-        DashSettingsSheetView()
+        PodSettingsSheetView()
     }
 }
 
 
-struct DashSettingsSheetView: View {
+struct PodSettingsSheetView: View {
     
     @State var showingDetail = true
     
@@ -296,7 +298,7 @@ struct DashSettingsSheetView: View {
             }.sheet(isPresented: $showingDetail) {
                 NavigationView {
                     ZStack {
-                        DashSettingsView(viewModel: MockDashSettingsViewModel(), navigator: MockNavigator())
+                        PodSettingsView(viewModel: MockPodSettingsViewModel(), navigator: MockNavigator())
                     }
                 }
             }

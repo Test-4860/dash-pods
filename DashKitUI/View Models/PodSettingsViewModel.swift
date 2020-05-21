@@ -1,5 +1,5 @@
 //
-//  DashSettingsViewModel.swift
+//  PodSettingsViewModel.swift
 //  DashKitUI
 //
 //  Created by Pete Schwamb on 3/8/20.
@@ -11,7 +11,7 @@ import SwiftUI
 import LoopKit
 import HealthKit
 
-class DashSettingsViewModel: DashSettingsViewModelProtocol {
+class PodSettingsViewModel: PodSettingsViewModelProtocol {
     
     @Published var lifeState: PodLifeState
     
@@ -20,6 +20,8 @@ class DashSettingsViewModel: DashSettingsViewModelProtocol {
     @Published var basalDeliveryState: PumpManagerStatus.BasalDeliveryState
 
     @Published var basalDeliveryRate: BasalDeliveryRate?
+    
+    @Published var reservoirLevel: ReservoirLevel?
     
     var timeZone: TimeZone {
         return pumpManager.status.timeZone
@@ -66,7 +68,7 @@ class DashSettingsViewModel: DashSettingsViewModelProtocol {
         activatedAt = pumpManager.podActivatedAt
         basalDeliveryState = pumpManager.status.basalDeliveryState
         basalDeliveryRate = self.pumpManager.basalDeliveryRate
-        
+        reservoirLevel = pumpManager.state.reservoirLevel
         pumpManager.addStatusObserver(self, queue: DispatchQueue.main)
     }
     
@@ -106,11 +108,12 @@ class DashSettingsViewModel: DashSettingsViewModelProtocol {
     }
 }
 
-extension DashSettingsViewModel: PumpManagerStatusObserver {
+extension PodSettingsViewModel: PumpManagerStatusObserver {
     func pumpManager(_ pumpManager: PumpManager, didUpdate status: PumpManagerStatus, oldStatus: PumpManagerStatus) {
         lifeState = self.pumpManager.lifeState
         basalDeliveryState = status.basalDeliveryState
         basalDeliveryRate = self.pumpManager.basalDeliveryRate
+        reservoirLevel = self.pumpManager.reservoirLevel
     }
 }
 

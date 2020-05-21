@@ -16,7 +16,7 @@ struct BasalDeliveryRate {
     var netPercent: Double
 }
 
-protocol DashSettingsViewModelProtocol: ObservableObject, Identifiable {
+protocol PodSettingsViewModelProtocol: ObservableObject, Identifiable {
     var lifeState: PodLifeState { get }
 
     var activatedAt: Date? { get }
@@ -24,6 +24,8 @@ protocol DashSettingsViewModelProtocol: ObservableObject, Identifiable {
     var basalDeliveryState: PumpManagerStatus.BasalDeliveryState { get }
     
     var basalDeliveryRate: BasalDeliveryRate? { get }
+    
+    var reservoirLevel: ReservoirLevel? { get }
 
     var podVersion: PodVersionProtocol? { get }
     
@@ -46,7 +48,7 @@ protocol DashSettingsViewModelProtocol: ObservableObject, Identifiable {
     func doneTapped()
 }
 
-extension DashSettingsViewModelProtocol {
+extension PodSettingsViewModelProtocol {
     var podOk: Bool {
         switch lifeState {
         case .noPod, .podAlarm, .systemError, .podActivating, .podDeactivating:
