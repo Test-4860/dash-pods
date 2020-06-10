@@ -530,56 +530,57 @@ public class DashPumpManager: PumpManager {
     }
 
     public func enactBolus(units: Double, at startDate: Date, willRequest: @escaping (DoseEntry) -> Void, completion: @escaping (PumpManagerResult<DoseEntry>) -> Void) {
-        do {
-            let preflightError = self.setStateWithResult({ (state) -> Error? in
-                if state.activeTransition != nil {
-                    return SetBolusError.certain(DashPumpManagerError.busy)
-                }
-                if let bolus = state.unfinalizedBolus, !bolus.isFinished(at: dateGenerator()) {
-                    return SetBolusError.certain(DashPumpManagerError.busy)
-                }
-                
-                state.activeTransition = .startingBolus
-                return nil
-            })
-            
-            guard preflightError == nil else {
-                completion(.failure(preflightError!))
-                return
+        let preflightError = self.setStateWithResult({ (state) -> DashPumpManagerError? in
+            if state.activeTransition != nil {
+                return .busy
+            }
+            if let bolus = state.unfinalizedBolus, !bolus.isFinished(at: dateGenerator()) {
+                return .busy
             }
             
-            // Round to nearest supported volume
-            let enactUnits = roundToSupportedBolusVolume(units: units)
-            let program = ProgramType.bolus(bolus: try Bolus(immediateVolume: Int(round(enactUnits * Pod.podSDKInsulinMultiplier))))
+            state.activeTransition = .startingBolus
+            return nil
+        })
+        
+        guard preflightError == nil else {
+            completion(.failure(.deviceState(preflightError)))
+            return
+        }
+        
+        // Round to nearest supported volume
+        let enactUnits = roundToSupportedBolusVolume(units: units)
+        
+        guard let bolusProgram = try? Bolus(immediateVolume: Int(round(enactUnits * Pod.podSDKInsulinMultiplier))) else {
+            completion(.failure(.communication(PodCommError.invalidProgram)))
+            return
+        }
+        let program = ProgramType.bolus(bolus: bolusProgram)
 
-            let endDate = startDate.addingTimeInterval(enactUnits / Pod.bolusDeliveryRate)
-            let dose = DoseEntry(type: .bolus, startDate: startDate, endDate: endDate, value: enactUnits, unit: .units)
+        let endDate = startDate.addingTimeInterval(enactUnits / Pod.bolusDeliveryRate)
+        let dose = DoseEntry(type: .bolus, startDate: startDate, endDate: endDate, value: enactUnits, unit: .units)
 
-            willRequest(dose)
+        willRequest(dose)
 
-            podCommManager.sendProgram(programType: program, beepOption: nil) { (result) in
-                switch result {
-                case .success(let podStatus):
-                    self.mutateState({ (state) in
-                        if let finishedBolus = state.unfinalizedBolus {
-                            state.finishedDoses.append(finishedBolus)
-                        }
-                        state.unfinalizedBolus = UnfinalizedDose(bolusAmount: enactUnits, startTime: startDate, scheduledCertainty: .certain)
-                        state.updateFromPodStatus(status: podStatus)
-                        state.activeTransition = nil
-                    })
-                    self.finalizeAndStoreDoses()
-                    completion(.success(dose))
-                case .failure(let error):
-                    self.mutateState({ (state) in
-                        state.activeTransition = nil
-                    })
-                    self.finalizeAndStoreDoses()
-                    completion(.failure(DashPumpManagerError(error)))
-                }
+        podCommManager.sendProgram(programType: program, beepOption: nil) { (result) in
+            switch result {
+            case .success(let podStatus):
+                self.mutateState({ (state) in
+                    if let finishedBolus = state.unfinalizedBolus {
+                        state.finishedDoses.append(finishedBolus)
+                    }
+                    state.unfinalizedBolus = UnfinalizedDose(bolusAmount: enactUnits, startTime: startDate, scheduledCertainty: .certain)
+                    state.updateFromPodStatus(status: podStatus)
+                    state.activeTransition = nil
+                })
+                self.finalizeAndStoreDoses()
+                completion(.success(dose))
+            case .failure(let error):
+                self.mutateState({ (state) in
+                    state.activeTransition = nil
+                })
+                self.finalizeAndStoreDoses()
+                completion(.failure(.communication(error)))
             }
-        } catch let error {
-            completion(.failure(error))
         }
     }
 
@@ -587,7 +588,7 @@ public class DashPumpManager: PumpManager {
         
         let preflightError = self.setStateWithResult({ (state) -> DashPumpManagerError? in
             if state.activeTransition != nil {
-                return DashPumpManagerError.busy
+                return .busy
             }
             
             state.activeTransition = .cancelingBolus
@@ -595,7 +596,7 @@ public class DashPumpManager: PumpManager {
         })
         
         guard preflightError == nil else {
-            completion(.failure(preflightError!))
+            completion(.failure(.deviceState(preflightError)))
             return
         }
 
@@ -613,7 +614,7 @@ public class DashPumpManager: PumpManager {
                 self.mutateState({ (state) in
                     state.activeTransition = nil
                 })
-                completion(.failure(DashPumpManagerError(error)))
+                completion(.failure(.communication(error)))
             }
         }
     }
@@ -621,7 +622,7 @@ public class DashPumpManager: PumpManager {
     public func cancelTempBasal(completion: @escaping (DashPumpManagerError?) -> Void) {
         let preflightError = self.setStateWithResult({ (state) -> DashPumpManagerError? in
             if state.activeTransition != nil {
-                return DashPumpManagerError.busy
+                return .busy
             }
             
             state.activeTransition = .cancelingTempBasal
@@ -670,15 +671,15 @@ public class DashPumpManager: PumpManager {
                 // secondsSinceMidnight not used for absolute rate temp basals; SDK api will change in future so this is only specified for percent value types
                 program = ProgramType.tempBasal(tempBasal: tempBasal)
             }
-        } catch let error {
-            completion(.failure(error))
+        } catch {
+            completion(.failure(.communication(PodCommError.invalidProgram)))
             return
         }
         
-        let preflight: (_ completion: @escaping (Error?) -> Void) -> Void
+        let preflight: (_ completion: @escaping (DashPumpManagerError?) -> Void) -> Void
         
         if case .tempBasal = status.basalDeliveryState {
-            preflight = { (_ completion: @escaping (Error?) -> Void) in
+            preflight = { (_ completion: @escaping (DashPumpManagerError?) -> Void) in
                 self.cancelTempBasal { (error) in
                     if let error = error {
                         self.log.error("cancelTempBasal error: %{public}@", String(describing: error))
@@ -690,12 +691,12 @@ public class DashPumpManager: PumpManager {
                 }
             }
         } else {
-            preflight = { (_ completion: @escaping (Error?) -> Void) in
+            preflight = { (_ completion: @escaping (DashPumpManagerError?) -> Void) in
                 self.podCommManager.getPodStatus(userInitiated: false) { (result) in
                     switch result {
                     case .failure(let error):
                         self.log.error("getPodStatus error: %{public}@", String(describing: error))
-                        completion(error)
+                        completion(DashPumpManagerError(error))
                     case .success:
                         completion(nil)
                     }
@@ -705,7 +706,7 @@ public class DashPumpManager: PumpManager {
         
         preflight { (error) in
             if let error = error {
-                completion(.failure(error))
+                completion(.failure(.communication(error)))
             } else {
                 self.log.default("preflight succeeded")
                 guard let program = program else {
@@ -726,7 +727,7 @@ public class DashPumpManager: PumpManager {
                 })
                 
                 guard preflightError == nil else {
-                    completion(.failure(preflightError!))
+                    completion(.failure(.communication(preflightError!)))
                     return
                 }
                 
@@ -743,7 +744,7 @@ public class DashPumpManager: PumpManager {
                                 state.activeTransition = nil
                             })
                             self.finalizeAndStoreDoses()
-                            completion(.failure(DashPumpManagerError(error)))
+                            completion(.failure(.communication(error)))
                         case .success(let podStatus):
                             self.mutateState({ (state) in
                                 state.unfinalizedTempBasal = UnfinalizedDose(tempBasalRate: enactRate, startTime: startDate, duration: duration, scheduledCertainty: .certain)
@@ -774,11 +775,11 @@ public class DashPumpManager: PumpManager {
         }
     }
 
-    public func suspendDelivery(completion: @escaping (Error?) -> Void) {
+    public func suspendDelivery(completion: @escaping (PumpManagerError?) -> Void) {
         
-        let preflightError = self.setStateWithResult({ (state) -> Error? in
+        let preflightError = self.setStateWithResult({ (state) -> PumpManagerError? in
             if state.activeTransition != nil {
-                return SetBolusError.certain(DashPumpManagerError.busy)
+                return .deviceState(DashPumpManagerError.busy)
             }
             state.activeTransition = .suspendingPump
             return nil
@@ -796,9 +797,8 @@ public class DashPumpManager: PumpManager {
                 self.mutateState({ (state) in
                     state.activeTransition = nil
                 })
-                completion(DashPumpManagerError(error))
+                completion(.communication(DashPumpManagerError(error)))
             case .success(let podStatus):
-
                 self.mutateState({ (state) in
                     let now = self.dateGenerator()
                     if let unfinalizedTempBasal = state.unfinalizedTempBasal,
@@ -828,10 +828,10 @@ public class DashPumpManager: PumpManager {
         }
     }
 
-    public func resumeDelivery(completion: @escaping (Error?) -> Void) {
-        let preflightError = self.setStateWithResult({ (state) -> Error? in
+    public func resumeDelivery(completion: @escaping (PumpManagerError?) -> Void) {
+        let preflightError = self.setStateWithResult({ (state) -> PumpManagerError? in
             if state.activeTransition != nil {
-                return DashPumpManagerError.busy
+                return .deviceState(DashPumpManagerError.busy)
             }
             state.activeTransition = .resumingPump
             return nil
@@ -851,7 +851,7 @@ public class DashPumpManager: PumpManager {
                 self.mutateState({ (state) in
                     state.activeTransition = nil
                 })
-                completion(error)
+                completion(.communication(DashPumpManagerError(error)))
             case .success(let podStatus):
                 self.mutateState({ (state) in
                     let now = self.dateGenerator()
